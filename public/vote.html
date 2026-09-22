@@ -28,7 +28,7 @@
 
   <div id="votingArea" class="stack hidden">
     <div class="card">
-      <p style="font-size:.9rem;color:var(--text-muted)">Bewerte jede Option: <strong style="color:var(--text)">0 = kein Widerstand</strong> · <strong style="color:var(--text)">10 = maximaler Widerstand</strong></p>
+      <p style="font-size:.9rem;color:var(--text-muted)">Bewerte jede Option nach deinem Widerstand dagegen: <strong style="color:var(--text)">0 = kein Widerstand</strong> · <strong style="color:var(--text)">10 = maximaler Widerstand</strong>.</p>
     </div>
 
     <div id="optionsArea" class="stack"></div>
@@ -100,6 +100,15 @@
       score.id = "score_" + opt.id;
       top.appendChild(score);
       card.appendChild(top);
+
+      if(opt.isNull){
+        var nullHint = document.createElement("p");
+        nullHint.style.fontSize = ".8rem";
+        nullHint.style.color = "var(--text-muted)";
+        nullHint.style.margin = "-.3rem 0 0";
+        nullHint.textContent = "Wir tun nichts – alles bleibt genau so, wie es gerade ist.";
+        card.appendChild(nullHint);
+      }
 
       var slider = document.createElement("input");
       slider.type = "range";
