@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abstimmung</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Systemisches Konsensieren</p>
+    <h1 class="font-display" id="questionText">Lade Abstimmung …</h1>
+  </header>
+
+  <div id="loadError" class="card hidden" style="color:var(--bad)"></div>
+
+  <div id="closedNotice" class="card hidden">
+    <p class="pill pill-accent" style="margin-bottom:.5rem">Abstimmung beendet</p>
+    <p style="color:var(--text-muted)">Diese Abstimmung wurde von der moderierenden Person beendet. Deine Stimme kann nicht mehr geändert werden. Danke fürs Mitmachen!</p>
+  </div>
+
+  <div id="votingArea" class="stack hidden">
+    <div class="card">
+      <p style="font-size:.9rem;color:var(--text-muted)">Bewerte jede Option: <strong style="color:var(--text)">0 = kein Widerstand</strong> · <strong style="color:var(--text)">10 = maximaler Widerstand</strong></p>
+    </div>
+
+    <div id="optionsArea" class="stack"></div>
+
+    <div class="row-between">
+      <p id="submitStatus" style="font-size:.85rem;color:var(--text-muted)"></p>
+      <button id="submitBtn" class="btn btn-accent">
+        Stimme abgeben
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var boardId = window.location.pathname.split("/").filter(Boolean).pop();
+  var voterKey = "sk_voter_" + boardId;
+  var voterId = localStorage.getItem(voterKey);
+  if(!voterId){
+    voterId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+    try{ localStorage.setItem(voterKey, voterId); }catch(e){}
+  }
+
+  var draftKey = "sk_draft_" + boardId;
+  var draft = {};
+  try{ draft = JSON.parse(localStorage.getItem(draftKey) || "{}"); }catch(e){ draft = {}; }
+
+  var board = null;
+
+  function resistanceColor(v){
+    if(v <= 3) return { fg: "var(--good)", bg: "var(--good-soft)" };
+    if(v <= 6) return { fg: "var(--warn)", bg: "var(--warn-soft)" };
+    return { fg: "var(--bad)", bg: "var(--bad-soft)" };
+  }
+
+  function renderOptions(){
+    var area = document.getElementById("optionsArea");
+    area.innerHTML = "";
+    board.options.forEach(function(opt){
+      if(!(opt.id in draft)) draft[opt.id] = 0;
+
+      var card = document.createElement("div");
+      card.className = "card stack";
+      card.style.gap = ".6rem";
+
+      var top = document.createElement("div");
+      top.className = "row-between";
+      var nameWrap = document.createElement("div");
+      nameWrap.className = "row";
+      var nameEl = document.createElement("p");
+      nameEl.style.fontWeight = "600";
+      nameEl.textContent = opt.name;
+      nameWrap.appendChild(nameEl);
+      if(opt.isNull){
+        var tag = document.createElement("span");
+        tag.className = "pill";
+        tag.style.fontSize = ".68rem";
+        tag.textContent = "Status Quo";
+        nameWrap.appendChild(tag);
+      }
+      top.appendChild(nameWrap);
+
+      var score = document.createElement("span");
+      score.className = "score-badge";
+      score.id = "score_" + opt.id;
+      top.appendChild(score);
+      card.appendChild(top);
+
+      var slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "0"; slider.max = "10"; slider.step = "1";
+      slider.value = String(draft[opt.id]);
+      slider.className = "sk-slider";
+      slider.addEventListener("input", function(){
+        draft[opt.id] = Number(slider.value);
+        updateScoreBadge(opt.id);
+        try{ localStorage.setItem(draftKey, JSON.stringify(draft)); }catch(e){}
+      });
+      card.appendChild(slider);
+
+      var scale = document.createElement("div");
+      scale.className = "row-between font-mono";
+      scale.style.fontSize = ".68rem";
+      scale.style.color = "var(--text-muted)";
+      scale.innerHTML = "<span>0 · kein Widerstand</span><span>10 · max. Widerstand</span>";
+      card.appendChild(scale);
+
+      area.appendChild(card);
+      updateScoreBadge(opt.id);
+    });
+  }
+
+  function updateScoreBadge(optId){
+    var el = document.getElementById("score_" + optId);
+    if(!el) return;
+    var v = draft[optId] || 0;
+    el.textContent = v;
+    var c = resistanceColor(v);
+    el.style.color = c.fg;
+    el.style.background = c.bg;
+  }
+
+  async function loadBoard(){
+    try{
+      var res = await fetch("/api/boards/" + boardId);
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.error || "Abstimmung nicht gefunden."); }
+      board = data;
+      document.getElementById("questionText").textContent = board.question;
+
+      if(board.status === "results"){
+        document.getElementById("votingArea").classList.add("hidden");
+        document.getElementById("closedNotice").classList.remove("hidden");
+      } else {
+        document.getElementById("closedNotice").classList.add("hidden");
+        document.getElementById("votingArea").classList.remove("hidden");
+        renderOptions();
+      }
+    }catch(e){
+      document.getElementById("loadError").textContent = "Fehler: " + e.message;
+      document.getElementById("loadError").classList.remove("hidden");
+    }
+  }
+
+  document.getElementById("submitBtn").addEventListener("click", async function(){
+    var btn = this;
+    var statusEl = document.getElementById("submitStatus");
+    btn.disabled = true;
+    try{
+      var res = await fetch("/api/boards/" + boardId + "/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Voter-Id": voterId },
+        body: JSON.stringify({ scores: draft })
+      });
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.error || "Fehler beim Absenden."); }
+      statusEl.style.color = "var(--good)";
+      statusEl.textContent = "Danke, deine Stimme wurde gezählt. Du kannst sie jederzeit hier erneut ändern.";
+    }catch(e){
+      statusEl.style.color = "var(--bad)";
+      statusEl.textContent = "Fehler: " + e.message;
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  loadBoard();
+  // sanft prüfen, ob die Abstimmung inzwischen beendet wurde
+  setInterval(loadBoard, 6000);
+})();
+</script>
+</body>
+</html>

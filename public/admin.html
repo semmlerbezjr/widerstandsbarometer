@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin – Widerstandsbarometer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="row-between">
+    <div>
+      <p class="eyebrow">Admin-Panel</p>
+      <h1 class="font-display" id="questionText" style="font-size:1.5rem">Lade Abstimmung …</h1>
+    </div>
+    <span class="pill pill-accent" id="statusPill">–</span>
+  </header>
+
+  <div id="loadError" class="card hidden" style="color:var(--bad)"></div>
+
+  <section id="adminBody" class="stack hidden">
+
+    <div class="card row" style="align-items:flex-start">
+      <div class="qr-frame">
+        <img id="voteQr" alt="QR-Code zur Abstimmung">
+      </div>
+      <div class="stack" style="flex:1; min-width:200px; gap:.5rem">
+        <label>Teilnehmer-Link (öffentlich)</label>
+        <div class="link-box" id="voteLink"></div>
+        <button class="btn btn-ghost" id="copyVoteBtn" style="align-self:flex-start">Link kopieren</button>
+      </div>
+    </div>
+
+    <div class="card row-between">
+      <span class="pill">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span id="voteCount">0</span> Stimmen
+      </span>
+      <div class="row">
+        <button id="finishBtn" class="btn btn-accent">Abstimmung beenden</button>
+        <button id="reopenBtn" class="btn btn-ghost hidden">Wieder öffnen</button>
+        <button id="resetBtn" class="btn btn-danger">Zurücksetzen</button>
+      </div>
+    </div>
+
+    <div class="card stack">
+      <div class="row-between">
+        <h2>Zwischenstand (nur für dich sichtbar)</h2>
+      </div>
+      <div id="resultsList" class="stack"></div>
+    </div>
+
+  </section>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var parts = window.location.pathname.split("/").filter(Boolean);
+  var boardId = parts[1] || parts[0];
+  var params = new URLSearchParams(window.location.search);
+  var token = params.get("token");
+
+  if(!token){
+    document.getElementById("loadError").textContent = "Kein Admin-Token gefunden. Bitte den vollständigen Admin-Link verwenden.";
+    document.getElementById("loadError").classList.remove("hidden");
+    return;
+  }
+
+  function resistanceColor(v){
+    if(v <= 3) return "var(--good)";
+    if(v <= 6) return "var(--warn)";
+    return "var(--bad)";
+  }
+
+  function renderResults(board){
+    var container = document.getElementById("resultsList");
+    container.innerHTML = "";
+    var rows = (board.results && board.results.rows) || [];
+
+    if(!rows.length || board.voterCount === 0){
+      var empty = document.createElement("p");
+      empty.style.color = "var(--text-muted)";
+      empty.style.fontSize = ".9rem";
+      empty.textContent = "Noch keine Stimmen abgegeben.";
+      container.appendChild(empty);
+      return;
+    }
+
+    var maxSum = Math.max.apply(null, rows.map(function(r){ return r.sum; }).concat([1]));
+
+    rows.forEach(function(row, idx){
+      var isBest = idx === 0;
+      var wrap = document.createElement("div");
+      wrap.className = "card stack";
+      wrap.style.gap = ".55rem";
+      if(isBest){
+        wrap.style.borderColor = "var(--good)";
+        wrap.style.background = "var(--good-soft)";
+        wrap.style.boxShadow = "0 0 0 1.5px var(--good), var(--shadow)";
+      }
+
+      var top = document.createElement("div");
+      top.className = "row-between";
+
+      var left = document.createElement("div");
+      left.className = "row";
+      left.style.minWidth = "0";
+
+      var rank = document.createElement("span");
+      rank.className = "font-mono";
+      rank.style.fontSize = ".75rem";
+      rank.style.fontWeight = "600";
+      rank.style.color = isBest ? "var(--good)" : "var(--text-muted)";
+      rank.textContent = "#" + (idx+1);
+      left.appendChild(rank);
+
+      var nameEl = document.createElement("p");
+      nameEl.style.fontWeight = "600";
+      nameEl.textContent = row.name;
+      left.appendChild(nameEl);
+
+      if(isBest){
+        var badge = document.createElement("span");
+        badge.className = "pill";
+        badge.style.color = "var(--good)";
+        badge.style.borderColor = "var(--good)";
+        badge.style.background = "var(--surface)";
+        badge.textContent = "Geringster Widerstand";
+        left.appendChild(badge);
+      } else if(row.isNull){
+        var tag = document.createElement("span");
+        tag.className = "pill";
+        tag.style.fontSize = ".68rem";
+        tag.textContent = "Status Quo";
+        left.appendChild(tag);
+      }
+      top.appendChild(left);
+
+      var nums = document.createElement("div");
+      nums.className = "row font-mono";
+      nums.style.fontSize = ".78rem";
+      nums.style.color = "var(--text-muted)";
+      nums.innerHTML = '<span>Ø <strong style="color:var(--text);font-size:.95rem">' + row.avg.toFixed(1) + '</strong></span>' +
+        '<span>Σ <strong style="color:var(--text)">' + row.sum + '</strong></span>';
+      top.appendChild(nums);
+
+      wrap.appendChild(top);
+
+      var track = document.createElement("div");
+      track.className = "bar-track";
+      var fill = document.createElement("div");
+      fill.className = "bar-fill";
+      var pct = maxSum > 0 ? Math.max(4, (row.sum / maxSum) * 100) : 0;
+      fill.style.width = pct + "%";
+      fill.style.background = isBest ? "var(--good)" : resistanceColor(row.avg);
+      track.appendChild(fill);
+      wrap.appendChild(track);
+
+      container.appendChild(wrap);
+    });
+  }
+
+  function render(board){
+    document.getElementById("questionText").textContent = board.question;
+    document.getElementById("voteCount").textContent = board.voterCount;
+
+    var pill = document.getElementById("statusPill");
+    if(board.status === "results"){
+      pill.textContent = "Beendet";
+    } else {
+      pill.textContent = "Läuft";
+    }
+
+    document.getElementById("finishBtn").classList.toggle("hidden", board.status === "results");
+    document.getElementById("reopenBtn").classList.toggle("hidden", board.status !== "results");
+
+    renderResults(board);
+  }
+
+  async function loadBoard(){
+    try{
+      var res = await fetch("/api/boards/" + boardId + "?token=" + encodeURIComponent(token));
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.error || "Abstimmung nicht gefunden."); }
+
+      document.getElementById("adminBody").classList.remove("hidden");
+      document.getElementById("loadError").classList.add("hidden");
+
+      var voteUrl = window.location.origin + "/vote/" + boardId;
+      document.getElementById("voteLink").textContent = voteUrl;
+      document.getElementById("voteQr").src = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=" + encodeURIComponent(voteUrl);
+
+      render(data);
+    }catch(e){
+      document.getElementById("loadError").textContent = "Fehler: " + e.message;
+      document.getElementById("loadError").classList.remove("hidden");
+    }
+  }
+
+  async function callAction(action, confirmMsg){
+    if(confirmMsg && !confirm(confirmMsg)) return;
+    try{
+      var res = await fetch("/api/boards/" + boardId + "/admin/" + action + "?token=" + encodeURIComponent(token), { method: "POST" });
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.error || "Aktion fehlgeschlagen."); }
+      render(data);
+    }catch(e){
+      alert("Fehler: " + e.message);
+    }
+  }
+
+  document.getElementById("finishBtn").addEventListener("click", function(){
+    callAction("finish", "Abstimmung wirklich beenden? Teilnehmende können danach nicht mehr abstimmen.");
+  });
+  document.getElementById("reopenBtn").addEventListener("click", function(){
+    callAction("reopen");
+  });
+  document.getElementById("resetBtn").addEventListener("click", function(){
+    callAction("reset", "Wirklich alle Stimmen löschen und neu starten? Das kann nicht rückgängig gemacht werden.");
+  });
+  document.getElementById("copyVoteBtn").addEventListener("click", function(){
+    var text = document.getElementById("voteLink").textContent;
+    var btn = this;
+    navigator.clipboard.writeText(text).then(function(){
+      var orig = btn.textContent;
+      btn.textContent = "Kopiert!";
+      setTimeout(function(){ btn.textContent = orig; }, 1500);
+    });
+  });
+
+  loadBoard();
+  setInterval(loadBoard, 2500);
+})();
+</script>
+</body>
+</html>

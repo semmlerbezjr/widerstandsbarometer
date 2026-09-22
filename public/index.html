@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Widerstandsbarometer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Systemisches Konsensieren</p>
+    <h1 class="font-display">Widerstandsbarometer</h1>
+  </header>
+
+  <section id="formCard" class="card stack">
+    <div class="stack" style="gap:.4rem">
+      <label for="questionInput">Thema / Fragestellung</label>
+      <textarea id="questionInput" class="field" rows="2" placeholder="z. B. Wie gestalten wir das Ferienprogramm 2026?"></textarea>
+    </div>
+
+    <div class="stack" style="gap:.5rem">
+      <div class="row-between">
+        <label>Lösungsoptionen</label>
+        <span style="font-size:.78rem;color:var(--text-muted)">Die Null-Lösung wird automatisch ergänzt</span>
+      </div>
+      <div id="optionsList" class="stack" style="gap:.5rem"></div>
+      <button id="addOptionBtn" class="btn btn-ghost" style="align-self:flex-start">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Option hinzufügen
+      </button>
+    </div>
+
+    <div class="row-between" style="border-top:1px solid var(--border); padding-top:1rem">
+      <p id="formError" style="font-size:.85rem;color:var(--bad)"></p>
+      <button id="createBtn" class="btn btn-accent">
+        Abstimmung erstellen
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <section id="resultCard" class="card stack hidden">
+    <div class="stack" style="gap:.3rem">
+      <p class="pill pill-accent" style="align-self:flex-start">Abstimmung angelegt</p>
+      <p style="font-size:.9rem;color:var(--text-muted)">Zwei Links wurden erzeugt. Den Admin-Link nur für dich behalten – er steuert die Abstimmung und zeigt die Ergebnisse.</p>
+    </div>
+
+    <div class="stack" style="gap:.4rem">
+      <label>Admin-Link (privat – steuert & wertet aus)</label>
+      <div class="row">
+        <div class="link-box" id="adminLink" style="flex:1"></div>
+        <button class="btn btn-ghost" id="copyAdminBtn">Kopieren</button>
+      </div>
+    </div>
+
+    <div class="stack" style="gap:.4rem">
+      <label>Teilnehmer-Link (öffentlich – zum Teilen/QR-Code)</label>
+      <div class="row" style="align-items:flex-start">
+        <div class="qr-frame">
+          <img id="voteQr" alt="QR-Code zur Abstimmung">
+        </div>
+        <div class="stack" style="flex:1; min-width:200px; gap:.5rem">
+          <div class="link-box" id="voteLink"></div>
+          <button class="btn btn-ghost" id="copyVoteBtn" style="align-self:flex-start">Kopieren</button>
+        </div>
+      </div>
+    </div>
+
+    <a id="openAdminBtn" class="btn btn-accent" style="align-self:flex-start; text-decoration:none">
+      Zum Admin-Panel
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var optionsListEl = document.getElementById("optionsList");
+  var optionCount = 0;
+
+  function addOptionRow(value){
+    optionCount++;
+    var row = document.createElement("div");
+    row.className = "row";
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "field option-input";
+    input.placeholder = "Option benennen";
+    input.value = value || "";
+    row.appendChild(input);
+    var del = document.createElement("button");
+    del.className = "icon-btn";
+    del.setAttribute("aria-label", "Option entfernen");
+    del.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+    del.addEventListener("click", function(){ row.remove(); });
+    row.appendChild(del);
+    optionsListEl.appendChild(row);
+    return input;
+  }
+
+  document.getElementById("addOptionBtn").addEventListener("click", function(){
+    addOptionRow().focus();
+  });
+
+  addOptionRow();
+  addOptionRow();
+
+  document.getElementById("createBtn").addEventListener("click", async function(){
+    var question = document.getElementById("questionInput").value.trim();
+    var inputs = Array.prototype.slice.call(document.querySelectorAll(".option-input"));
+    var options = inputs.map(function(i){ return i.value.trim(); }).filter(Boolean);
+    var errorEl = document.getElementById("formError");
+    errorEl.textContent = "";
+
+    if(!question){ errorEl.textContent = "Bitte eine Fragestellung eingeben."; return; }
+    if(options.length < 1){ errorEl.textContent = "Bitte mindestens eine Option eingeben."; return; }
+
+    var btn = document.getElementById("createBtn");
+    btn.disabled = true;
+    try{
+      var res = await fetch("/api/boards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: question, options: options })
+      });
+      var data = await res.json();
+      if(!res.ok){ throw new Error(data.error || "Unbekannter Fehler"); }
+
+      var origin = window.location.origin;
+      var adminUrl = origin + "/admin/" + data.id + "?token=" + data.adminToken;
+      var voteUrl = origin + "/vote/" + data.id;
+
+      document.getElementById("adminLink").textContent = adminUrl;
+      document.getElementById("voteLink").textContent = voteUrl;
+      document.getElementById("openAdminBtn").href = adminUrl;
+      document.getElementById("voteQr").src = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=" + encodeURIComponent(voteUrl);
+
+      document.getElementById("formCard").classList.add("hidden");
+      document.getElementById("resultCard").classList.remove("hidden");
+
+      document.getElementById("copyAdminBtn").onclick = function(){ copyText(adminUrl, this); };
+      document.getElementById("copyVoteBtn").onclick = function(){ copyText(voteUrl, this); };
+    }catch(e){
+      errorEl.textContent = "Fehler: " + e.message;
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  function copyText(text, btn){
+    var original = btn.textContent;
+    navigator.clipboard.writeText(text).then(function(){
+      btn.textContent = "Kopiert!";
+      setTimeout(function(){ btn.textContent = original; }, 1500);
+    }, function(){
+      btn.textContent = "Fehlgeschlagen";
+      setTimeout(function(){ btn.textContent = original; }, 1500);
+    });
+  }
+})();
+</script>
+</body>
+</html>
